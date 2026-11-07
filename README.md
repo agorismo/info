@@ -1,4 +1,4 @@
-# social app
+# iNfo
 
 Rust (Axum) + SQLite, front em HTML/JS puro.
 
