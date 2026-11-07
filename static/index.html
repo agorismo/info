@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>social app</title>
+<style>
+  :root { color-scheme: dark; --bg:#111; --card:#1b1b1b; --line:#2c2c2c; --fg:#eee; --mute:#999; --accent:#7c9cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  header { display:flex; gap:14px; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header a { color:var(--fg); text-decoration:none; }
+  #brand { font-weight:700; }
+  #q { flex:1; min-width:140px; max-width:280px; }
+  nav { margin-left:auto; display:flex; gap:12px; align-items:center; }
+  main { max-width:620px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; }
+  input, textarea, button, select { font:inherit; color:inherit; background:#222; border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
+  textarea { width:100%; resize:vertical; }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); color:#000; border-color:var(--accent); font-weight:600; }
+  form { display:flex; flex-direction:column; gap:10px; }
+  .inline { display:flex; flex-direction:row; gap:8px; align-items:center; flex-wrap:wrap; }
+  .mute { color:var(--mute); }
+  .stats { display:flex; gap:16px; margin:12px 0; }
+  .stats a { color:var(--fg); text-decoration:none; }
+  .err { color:#ff7b7b; min-height:1.2em; }
+  .user { display:block; padding:10px 0; border-bottom:1px solid var(--line); color:var(--fg); text-decoration:none; }
+  .user:last-child, .row:last-child { border-bottom:0; }
+  .row { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); color:var(--fg); text-decoration:none; }
+  .poster { width:48px; height:72px; object-fit:cover; border-radius:4px; background:#222; flex:none; }
+  .big { display:flex; gap:16px; margin-bottom:12px; }
+  .big .poster { width:110px; height:165px; }
+  .tabs { display:flex; gap:14px; margin-bottom:12px; flex-wrap:wrap; }
+  .tabs a { color:var(--mute); text-decoration:none; }
+  .tabs a.on { color:var(--fg); font-weight:600; }
+  .stars { color:#ffc857; }
+  .bars { display:flex; align-items:flex-end; gap:2px; height:80px; margin:12px 0; }
+  .bars div { flex:1; min-width:2px; background:var(--accent); border-radius:2px 2px 0 0; }
+  ol.top { margin:0 0 14px; padding-left:22px; }
+  pre { background:#111; border:1px solid var(--line); padding:10px; border-radius:8px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
+  h1 { margin:0; font-size:22px; }
+  h2 { margin:0 0 8px; font-size:16px; }
+</style>
+</head>
+<body>
+<header>
+  <a id="brand" href="#/">social app</a>
+  <a href="#/catalog/movie">filmes</a>
+  <a href="#/catalog/album">discos</a>
+  <input id="q" placeholder="buscar usuários">
+  <nav id="nav"></nav>
+</header>
+<main id="main"></main>
+
+<script>
+const main = document.getElementById('main');
+let me = null;
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch('/api' + path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || 'erro');
+  return data;
+}
+
+function h(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (k === 'text') e.textContent = v;
+    else e.setAttribute(k, v);
+  }
+  kids.flat().forEach(c => e.append(c));
+  return e;
+}
+
+const fmtStars = r => '★'.repeat(Math.floor(r)) + (r % 1 ? '½' : '');
+const avgText = it => it.avg != null ? `★ ${it.avg.toFixed(2)} (${it.n})` : 'sem notas ainda';
+const errBox = e => h('div', { class: 'card' }, h('p', { class: 'err', text: e.message }));
+
+function renderNav() {
+  const nav = document.getElementById('nav');
+  nav.replaceChildren();
+  if (me) {
+    nav.append(
+      h('a', { href: '#/scrobbler', text: 'scrobbler' }),
+      h('a', { href: '#/u/' + me.username, text: '@' + me.username }),
+      h('button', { text: 'sair', onclick: async () => { await api('/logout', 'POST'); me = null; renderNav(); location.hash = '#/login'; route(); } })
+    );
+  } else {
+    nav.append(h('a', { href: '#/login', text: 'entrar' }));
+  }
+}
+
+function userList(users) {
+  if (!users.length) return h('p', { class: 'mute', text: 'ninguém por aqui ainda.' });
+  return h('div', {}, users.map(u =>
+    h('a', { class: 'user', href: '#/u/' + u.username },
+      h('strong', { text: u.display_name }), ' ', h('span', { class: 'mute', text: '@' + u.username }))
+  ));
+}
+
+function poster(it) {
+  return h('img', { class: 'poster', src: it.image_url || '', alt: '', loading: 'lazy',
+    onerror: e => { e.target.style.visibility = 'hidden'; } });
+}
+
+function itemRow(it, meta, review) {
+  const sub = [it.year, it.creator].filter(Boolean).join(' · ');
+  return h('a', { class: 'row', href: '#/item/' + it.id },
+    poster(it),
+    h('div', {},
+      h('strong', { text: it.title }), ' ', h('span', { class: 'mute', text: sub }),
+      meta ? h('div', { class: 'stars', text: meta }) : '',
+      review ? h('div', { class: 'mute', text: review.length > 140 ? review.slice(0, 140) + '…' : review }) : ''));
+}
+
+function itemList(items, empty) {
+  if (!items.length) return h('p', { class: 'mute', text: empty });
+  return h('div', {}, items.map(it => itemRow(it, avgText(it))));
+}
+
+// ---------- login ----------
+
+function authPage() {
+  const err = h('div', { class: 'err' });
+  const user = h('input', { placeholder: 'usuário', autocomplete: 'username' });
+  const pass = h('input', { type: 'password', placeholder: 'senha (mín. 8 caracteres)', autocomplete: 'current-password' });
+  const submit = async mode => {
+    err.textContent = '';
+    try {
+      await api('/' + mode, 'POST', { username: user.value, password: pass.value });
+      me = await api('/me');
+      renderNav();
+      location.hash = '#/u/' + me.username;
+    } catch (e) { err.textContent = e.message; }
+  };
+  main.replaceChildren(h('div', { class: 'card' },
+    h('h1', { text: 'Entrar ou criar conta' }),
+    h('form', { onsubmit: e => { e.preventDefault(); submit('login'); } },
+      user, pass, err,
+      h('div', {},
+        h('button', { class: 'primary', type: 'submit', text: 'Entrar' }), ' ',
+        h('button', { type: 'button', text: 'Criar conta', onclick: () => submit('register') })))
+  ));
+}
+
+// ---------- perfil ----------
+
+const PROFILE_TABS = [
+  ['diary', 'diário'], ['music', 'música'], ['watchlist', 'watchlist'], ['lists', 'listas'],
+  ['followers', 'seguidores'], ['following', 'seguindo'],
+];
+
+async function profilePage(username, tab) {
+  tab = PROFILE_TABS.some(t => t[0] === tab) ? tab : 'diary';
+  const p = await api('/users/' + encodeURIComponent(username));
+  const card = h('div', { class: 'card' },
+    h('h1', { text: p.display_name }),
+    h('div', { class: 'mute', text: '@' + p.username }),
+    h('p', { text: p.bio || '' }),
+    h('div', { class: 'stats' },
+      h('a', { href: `#/u/${p.username}/followers`, text: `${p.followers} seguidores` }),
+      h('a', { href: `#/u/${p.username}/following`, text: `${p.following} seguindo` }))
+  );
+
+  if (p.is_me) {
+    const name = h('input', { value: p.display_name, maxlength: 40 });
+    const bio = h('textarea', { rows: 3, maxlength: 300 }); bio.value = p.bio;
+    const err = h('div', { class: 'err' });
+    card.append(h('form', { onsubmit: async e => {
+      e.preventDefault(); err.textContent = '';
+      try { await api('/me', 'PUT', { display_name: name.value, bio: bio.value }); route(); }
+      catch (x) { err.textContent = x.message; }
+    } }, name, bio, err, h('button', { class: 'primary', type: 'submit', text: 'Salvar perfil' })));
+  } else {
+    card.append(h('button', {
+      class: p.is_following ? '' : 'primary',
+      text: p.is_following ? 'Deixar de seguir' : 'Seguir',
+      onclick: async () => {
+        if (!me) { location.hash = '#/login'; return; }
+        await api(`/users/${p.username}/follow`, p.is_following ? 'DELETE' : 'POST');
+        route();
+      },
+    }));
+  }
+
+  const body = h('div', { class: 'card' });
+  body.append(h('div', { class: 'tabs' }, PROFILE_TABS.map(([key, label]) =>
+    h('a', { href: `#/u/${p.username}/${key}`, class: key === tab ? 'on' : '', text: label }))));
+
+  const u = encodeURIComponent(p.username);
+  if (tab === 'followers' || tab === 'following') {
+    body.append(userList(await api(`/users/${u}/${tab}`)));
+  } else if (tab === 'diary') {
+    const entries = await api(`/users/${u}/ratings`);
+    body.append(entries.length
+      ? h('div', {}, entries.map(e => itemRow(e.item, fmtStars(e.rating), e.review)))
+      : h('p', { class: 'mute', text: 'nenhuma nota ainda.' }));
+  } else if (tab === 'music') {
+    body.append(await musicTab(u));
+  } else if (tab === 'watchlist') {
+    body.append(itemList(await api(`/users/${u}/watchlist`), 'a watchlist está vazia.'));
+  } else if (tab === 'lists') {
+    if (p.is_me) {
+      const t = h('input', { placeholder: 'nome da nova lista', maxlength: 80 });
+      const err = h('div', { class: 'err' });
+      body.append(h('form', { class: 'inline', onsubmit: async e => {
+        e.preventDefault(); err.textContent = '';
+        try { const r = await api('/lists', 'POST', { title: t.value }); location.hash = '#/list/' + r.id; }
+        catch (x) { err.textContent = x.message; }
+      } }, t, h('button', { class: 'primary', type: 'submit', text: 'Criar lista' }), err));
+    }
+    const lists = await api(`/users/${u}/lists`);
+    body.append(lists.length
+      ? h('div', {}, lists.map(l => h('a', { class: 'user', href: '#/list/' + l.id },
+          h('strong', { text: l.title }), ' ', h('span', { class: 'mute', text: `${l.n} itens` }))))
+      : h('p', { class: 'mute', text: 'nenhuma lista ainda.' }));
+  }
+
+  main.replaceChildren(card, body);
+}
+
+// ---------- música (scrobbler) ----------
+
+let musicPeriod = '30d';
+const PERIODS = [['7d', '7 dias'], ['30d', '30 dias'], ['90d', '3 meses'], ['365d', '1 ano'], ['all', 'tudo']];
+
+async function musicTab(u) {
+  const [np, st, recent] = await Promise.all([
+    api(`/users/${u}/nowplaying`),
+    api(`/users/${u}/stats?period=${musicPeriod}`),
+    api(`/users/${u}/scrobbles?limit=30`),
+  ]);
+  const box = h('div');
+  if (np) box.append(h('p', {}, '▶ ', h('strong', { text: np.track }), ' · ' + np.artist));
+
+  const sel = h('select', { onchange: e => { musicPeriod = e.target.value; route(); } });
+  PERIODS.forEach(([v, l]) => sel.append(h('option', { value: v, text: l })));
+  sel.value = musicPeriod;
+  box.append(h('div', { class: 'inline' }, sel,
+    h('span', { class: 'mute', text: `${st.total} scrobbles · ${st.artists} artistas` })));
+
+  if (st.days.length) {
+    const max = Math.max(...st.days.map(d => d.plays));
+    box.append(h('div', { class: 'bars' }, st.days.map(d =>
+      h('div', { title: `${d.day}: ${d.plays}`, style: `height:${Math.max(4, d.plays / max * 100)}%` }))));
+  }
+
+  const top = (title, rows, fmt) => rows.length
+    ? h('div', {}, h('h2', { text: title }),
+        h('ol', { class: 'top' }, rows.map(r => h('li', {}, fmt(r), h('span', { class: 'mute', text: ` · ${r.plays}x` })))))
+    : '';
+  box.append(
+    top('Artistas', st.top_artists, r => r.artist),
+    top('Faixas', st.top_tracks, r => `${r.track} — ${r.artist}`),
+    top('Álbuns', st.top_albums, r => `${r.album} — ${r.artist}`));
+
+  box.append(h('h2', { text: 'Ouvidas recentemente' }));
+  if (!recent.length) box.append(h('p', { class: 'mute', text: 'nenhum scrobble ainda.' }));
+  recent.forEach(s => box.append(h('div', { class: 'user' },
+    h('strong', { text: s.track }), ' ',
+    h('span', { class: 'mute', text: `${s.artist} · ${new Date(s.played_at * 1000).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}` }))));
+  return box;
+}
+
+async function scrobblerPage() {
+  if (!me) { location.hash = '#/login'; return; }
+  const tokens = await api('/tokens');
+  const card = h('div', { class: 'card' },
+    h('h1', { text: 'Scrobbler' }),
+    h('p', { class: 'mute', text: 'Seu player envia o que você ouve usando um token de API.' }),
+    h('h2', { text: 'Tokens' }));
+
+  tokens.forEach(t => card.append(h('div', { class: 'inline' },
+    h('strong', { text: t.name }), h('span', { class: 'mute', text: t.created_at }),
+    h('button', { text: 'revogar', onclick: async () => { await api('/tokens/' + t.id, 'DELETE'); route(); } }))));
+  if (!tokens.length) card.append(h('p', { class: 'mute', text: 'nenhum token ainda.' }));
+
+  const tname = h('input', { placeholder: 'nome (ex.: meu player)', maxlength: 40 });
+  const terr = h('div', { class: 'err' });
+  const created = h('div');
+  card.append(
+    h('form', { class: 'inline', onsubmit: async e => {
+      e.preventDefault(); terr.textContent = '';
+      try {
+        const r = await api('/tokens', 'POST', { name: tname.value });
+        created.replaceChildren(h('p', { text: 'Copie agora, ele não aparece de novo:' }), h('pre', { text: r.token }));
+        tname.value = '';
+      } catch (x) { terr.textContent = x.message; }
+    } }, tname, h('button', { class: 'primary', type: 'submit', text: 'Criar token' }), terr),
+    created);
+
+  const artist = h('input', { placeholder: 'artista' });
+  const track = h('input', { placeholder: 'faixa' });
+  const album = h('input', { placeholder: 'álbum (opcional)' });
+  const msg = h('span', { class: 'mute' });
+  card.append(h('h2', { text: 'Scrobble manual' }),
+    h('form', { class: 'inline', onsubmit: async e => {
+      e.preventDefault(); msg.textContent = '';
+      try {
+        await api('/scrobble', 'POST', { artist: artist.value, track: track.value, album: album.value });
+        msg.textContent = 'registrado!'; track.value = '';
+      } catch (x) { msg.textContent = x.message; }
+    } }, artist, track, album, h('button', { type: 'submit', text: 'Enviar' }), msg));
+
+  card.append(h('h2', { text: 'Como enviar pelo seu player' }),
+    h('pre', { text:
+`curl -X POST ${location.origin}/api/scrobble \\
+  -H "Authorization: Bearer SEU_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"artist":"Radiohead","track":"Idioteque","album":"Kid A"}'
+
+# tocando agora (opcional, some depois de 10 min sem atualizar)
+POST ${location.origin}/api/nowplaying   {"artist","track","album"}
+
+# vários de uma vez, ex.: sincronizar o que ouviu offline (até 100)
+POST ${location.origin}/api/scrobble/batch   [{"artist","track","timestamp":1731000000}, ...]` }));
+  main.replaceChildren(card);
+}
+
+// ---------- catálogo ----------
+
+function catalogPage(kind) {
+  if (kind !== 'album') kind = 'movie';
+  const input = h('input', { placeholder: kind === 'movie' ? 'buscar filmes' : 'buscar discos' });
+  const out = h('div');
+  const go = async () => {
+    const q = input.value.trim();
+    if (!q) return;
+    out.replaceChildren(h('p', { class: 'mute', text: 'buscando…' }));
+    try {
+      const items = await api(`/catalog/search?kind=${kind}&q=${encodeURIComponent(q)}`);
+      out.replaceChildren(itemList(items, 'nada encontrado.'));
+    } catch (e) { out.replaceChildren(h('p', { class: 'err', text: e.message })); }
+  };
+  main.replaceChildren(h('div', { class: 'card' },
+    h('div', { class: 'tabs' },
+      h('a', { href: '#/catalog/movie', class: kind === 'movie' ? 'on' : '', text: 'filmes' }),
+      h('a', { href: '#/catalog/album', class: kind === 'album' ? 'on' : '', text: 'discos' })),
+    h('form', { class: 'inline', onsubmit: e => { e.preventDefault(); go(); } },
+      input, h('button', { class: 'primary', type: 'submit', text: 'Buscar' })),
+    out));
+  input.focus();
+}
+
+async function itemPage(id) {
+  const d = await api('/items/' + encodeURIComponent(id));
+  const it = d.item;
+  const sub = [it.year, it.creator].filter(Boolean).join(' · ');
+  const card = h('div', { class: 'card' },
+    h('div', { class: 'big' }, poster(it),
+      h('div', {},
+        h('h1', { text: it.title }),
+        h('div', { class: 'mute', text: (it.kind === 'movie' ? 'filme' : 'disco') + (sub ? ' · ' + sub : '') }),
+        h('div', { class: 'stars', text: avgText(it) }))));
+
+  if (!me) {
+    card.append(h('a', { href: '#/login', text: 'Entre para avaliar' }));
+  } else {
+    const sel = h('select');
+    for (let v = 0.5; v <= 5; v += 0.5) sel.append(h('option', { value: String(v), text: `${fmtStars(v)} (${v})` }));
+    sel.value = String(d.mine ? d.mine.rating : 3);
+    const txt = h('textarea', { rows: 4, placeholder: 'escreva uma review (opcional)', maxlength: 5000 });
+    txt.value = d.mine ? d.mine.review : '';
+    const err = h('div', { class: 'err' });
+    const act = fn => async () => { err.textContent = ''; try { await fn(); route(); } catch (e) { err.textContent = e.message; } };
+
+    const buttons = h('div', { class: 'inline' },
+      h('button', { class: 'primary', type: 'submit', text: d.mine ? 'Atualizar' : 'Salvar nota' }));
+    if (d.mine) buttons.append(h('button', { type: 'button', text: 'Remover nota',
+      onclick: act(() => api(`/items/${it.id}/rating`, 'DELETE')) }));
+    buttons.append(h('button', { type: 'button',
+      text: d.in_watchlist ? 'Tirar da watchlist' : '+ Watchlist',
+      onclick: act(() => api(`/items/${it.id}/watchlist`, d.in_watchlist ? 'DELETE' : 'POST')) }));
+
+    card.append(h('form', { onsubmit: e => { e.preventDefault();
+      act(() => api(`/items/${it.id}/rating`, 'PUT', { rating: parseFloat(sel.value), review: txt.value }))(); } },
+      sel, txt, err, buttons));
+
+    const lists = await api(`/users/${me.username}/lists`);
+    if (lists.length) {
+      const ls = h('select'); lists.forEach(l => ls.append(h('option', { value: String(l.id), text: l.title })));
+      const msg = h('span', { class: 'mute' });
+      card.append(h('div', { class: 'inline', style: 'margin-top:12px' }, ls,
+        h('button', { text: 'Adicionar à lista', onclick: async () => {
+          try { await api(`/lists/${ls.value}/items`, 'POST', { item_id: it.id }); msg.textContent = 'adicionado!'; }
+          catch (e) { msg.textContent = e.message; }
+        } }), msg));
+    }
+  }
+
+  const reviews = h('div', { class: 'card' }, h('h2', { text: 'Reviews' }));
+  if (!d.reviews.length) reviews.append(h('p', { class: 'mute', text: 'nenhuma review ainda.' }));
+  d.reviews.forEach(r => reviews.append(h('div', { class: 'user' },
+    h('a', { href: '#/u/' + r.username, text: r.display_name }), ' ',
+    h('span', { class: 'stars', text: fmtStars(r.rating) }),
+    h('div', { text: r.review }))));
+
+  main.replaceChildren(card, reviews);
+}
+
+async function listPage(id) {
+  const l = await api('/lists/' + encodeURIComponent(id));
+  const card = h('div', { class: 'card' },
+    h('h1', { text: l.title }),
+    h('div', { class: 'mute' }, 'por ', h('a', { href: '#/u/' + l.owner.username, text: l.owner.display_name })),
+    l.description ? h('p', { text: l.description }) : '');
+  if (l.is_owner) card.append(h('button', { text: 'Apagar lista', onclick: async () => {
+    if (!confirm('Apagar essa lista?')) return;
+    await api('/lists/' + l.id, 'DELETE');
+    location.hash = '#/u/' + me.username + '/lists';
+  } }));
+
+  const body = h('div', { class: 'card' });
+  if (!l.items.length) body.append(h('p', { class: 'mute', text: 'lista vazia. Abra um filme ou disco e use "Adicionar à lista".' }));
+  l.items.forEach(it => {
+    const row = h('div', { class: 'inline' }, h('div', { style: 'flex:1' }, itemRow(it, avgText(it))));
+    if (l.is_owner) row.append(h('button', { text: 'remover', onclick: async () => {
+      await api(`/lists/${l.id}/items/${it.id}`, 'DELETE'); route();
+    } }));
+    body.append(row);
+  });
+  main.replaceChildren(card, body);
+}
+
+// ---------- rotas ----------
+
+async function route() {
+  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  try {
+    if (parts[0] === 'login') return authPage();
+    if (parts[0] === 'scrobbler') return await scrobblerPage();
+    if (parts[0] === 'u' && parts[1]) return await profilePage(decodeURIComponent(parts[1]), parts[2]);
+    if (parts[0] === 'catalog') return catalogPage(parts[1]);
+    if (parts[0] === 'item' && parts[1]) return await itemPage(parts[1]);
+    if (parts[0] === 'list' && parts[1]) return await listPage(parts[1]);
+    if (me) { location.hash = '#/u/' + me.username; return; }
+    authPage();
+  } catch (e) {
+    main.replaceChildren(errBox(e));
+  }
+}
+
+let timer;
+document.getElementById('q').addEventListener('input', e => {
+  clearTimeout(timer);
+  const q = e.target.value.trim();
+  if (!q) return route();
+  timer = setTimeout(async () => {
+    const users = await api('/search?q=' + encodeURIComponent(q)).catch(() => []);
+    main.replaceChildren(h('div', { class: 'card' }, h('strong', { text: 'Resultados' }), userList(users)));
+  }, 250);
+});
+
+window.addEventListener('hashchange', route);
+(async () => {
+  me = await api('/me').catch(() => null);
+  renderNav();
+  route();
+})();
+</script>
+</body>
+</html>
