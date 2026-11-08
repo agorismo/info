@@ -433,3 +433,59 @@ async fn user_stats(
         })).collect::<Vec<_>>(),
     })))
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_scrobble() -> ScrobbleIn {
+        ScrobbleIn {
+            artist: " Radiohead ".into(),
+            track: " Idioteque ".into(),
+            album: " Kid A ".into(),
+            duration: Some(250),
+            timestamp: Some(now() - 1),
+        }
+    }
+
+    #[test]
+    fn clean_trims_and_accepts_valid_text() {
+        assert_eq!(clean("  Radiohead  ", 200, "artist", true).unwrap(), "Radiohead");
+    }
+
+    #[test]
+    fn clean_rejects_empty_required_text() {
+        assert!(clean("   ", 200, "artist", true).is_err());
+    }
+
+    #[test]
+    fn clean_rejects_text_over_limit() {
+        assert!(clean(&"a".repeat(201), 200, "artist", true).is_err());
+    }
+
+    #[test]
+    fn validate_accepts_a_valid_scrobble() {
+        let value = validate(&sample_scrobble()).unwrap();
+        assert_eq!(value.artist, "Radiohead");
+        assert_eq!(value.track, "Idioteque");
+        assert_eq!(value.album, "Kid A");
+        assert_eq!(value.duration, Some(250));
+    }
+
+    #[test]
+    fn validate_rejects_future_timestamps() {
+        let mut input = sample_scrobble();
+        input.timestamp = Some(now() + 61);
+        assert!(validate(&input).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_invalid_durations() {
+        let mut input = sample_scrobble();
+        input.duration = Some(-1);
+        assert!(validate(&input).is_err());
+        input.duration = Some(86_401);
+        assert!(validate(&input).is_err());
+    }
+}
