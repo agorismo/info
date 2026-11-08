@@ -171,6 +171,9 @@ async fn list_pins(
     };
     let q = p.q.unwrap_or_default();
     let q = q.trim();
+    if q.chars().count() > 100 {
+        return Err(bad("busca: no máximo 100 caracteres"));
+    }
     let pattern = like(q);
     let rows = sqlx::query(&format!(
         "SELECT {CARD_COLS} FROM pins p JOIN users u ON u.id = p.user_id \
