@@ -1,10 +1,11 @@
-# iNfo
+# Info
 
 Rust (Axum) + SQLite, front em HTML/JS puro.
 
 - Etapa 1: contas, login, perfil, seguir
 - Etapa 2: catálogo de filmes e discos, notas, reviews, diário, watchlist, listas
 - Etapa 3: scrobbler próprio (tokens de API, histórico, "ouvindo agora", estatísticas)
+- Etapa 4: pins e boards (upload de imagem ou link, feed de quem você segue, explorar, busca, salvar em boards)
 
 ## Rodar
 
@@ -83,8 +84,24 @@ curl -X POST http://localhost:3000/api/scrobble \
 
 Convenção de scrobble (a mesma do Last.fm): envie quando a faixa tocou por pelo menos metade da duração ou 4 minutos, e use `nowplaying` quando ela começar.
 
+## Pins e boards
+
+Pins são imagens (enviadas do seu computador ou por link) com título, descrição e link de origem. Boards são coleções: qualquer pessoa pode salvar o pin de outra no seu próprio board. Os arquivos enviados ficam na pasta `uploads/` (criada sozinha, fora do git); só PNG, JPEG, GIF e WebP até 8 MB, e o tipo é checado pelo conteúdo do arquivo, não pelo nome. SVG é recusado de propósito. Ao apagar um pin, o arquivo é apagado junto, a menos que outro pin use a mesma imagem.
+
+| Método | Rota | O que faz |
+|---|---|---|
+| POST | `/api/uploads` | corpo = bytes da imagem (`Content-Type: image/*`); devolve `{url}` |
+| POST | `/api/pins` | `{image_url, title?, description?, link?}`; `image_url` é o `url` do upload ou um link http(s) |
+| GET | `/api/pins?feed=explore\|following&q=&before=` | 30 por página; `before` = id do último pin recebido |
+| GET / DELETE | `/api/pins/:id` | detalhe (com seus boards e quantos saves) / apagar (só o dono) |
+| GET | `/api/users/:username/pins` | pins de um usuário |
+| GET | `/api/users/:username/boards` | boards de um usuário, com até 4 capas |
+| POST | `/api/boards` | `{title, description?}` |
+| GET / DELETE | `/api/boards/:id` | ver / apagar (os pins continuam existindo) |
+| POST | `/api/boards/:id/pins` | `{pin_id}` salva o pin no board |
+| DELETE | `/api/boards/:id/pins/:pin_id` | tira do board |
+
 ## Próximas etapas
 
-4. Pins e boards
 5. Mensagens de áudio
 6. Call e tela (WebRTC, com WebSocket pra sinalização)
