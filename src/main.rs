@@ -64,9 +64,9 @@ type ApiResult<T> = Result<T, AppError>;
 
 async fn start_session(db: &SqlitePool, jar: CookieJar, user_id: i64) -> ApiResult<CookieJar> {
     // Rotaciona a sessão deste navegador ao entrar novamente.
-    if let Some(previous) = jar.get("session") {
+    if let Some(previous_token) = jar.get("session").map(|cookie| cookie.value().to_owned()) {
         sqlx::query("DELETE FROM sessions WHERE token = ?")
-            .bind(previous.value())
+            .bind(previous_token)
             .execute(db)
             .await?;
     }
