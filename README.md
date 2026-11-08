@@ -13,7 +13,7 @@ Rust (Axum) + SQLite, front em HTML/JS puro.
 cargo run
 ```
 
-Abra http://localhost:3000. O banco (`app.db`) é criado sozinho na primeira execução e as tabelas novas são adicionadas ao banco existente.
+Abra http://localhost:3000. O banco (`app.db`) é criado sozinho na primeira execução. **Mantenha esse arquivo local e não o envie ao GitHub**: ele contém contas e dados dos usuários. O `.gitignore` exclui o banco e seus arquivos auxiliares, uploads, builds e arquivos `.env`.
 
 Variáveis de ambiente (todas opcionais, mas a busca de filmes precisa da primeira):
 
