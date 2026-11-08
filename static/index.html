@@ -35,6 +35,18 @@
   .tabs a { color:var(--mute); text-decoration:none; }
   .tabs a.on { color:var(--fg); font-weight:600; }
   .stars { color:#ffc857; }
+  main.wide { max-width:960px; }
+  .masonry { column-width:190px; column-gap:12px; }
+  .pin { break-inside:avoid; margin-bottom:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .pin > a { display:block; color:var(--fg); text-decoration:none; }
+  .pin img { width:100%; display:block; background:#222; }
+  .pin .pt { padding:6px 10px; font-size:13px; }
+  .pin .tools { padding:0 10px 8px; }
+  .pinbig { max-width:100%; border-radius:10px; display:block; margin-bottom:12px; }
+  .covers { display:grid; grid-template-columns:1fr 1fr; gap:2px; width:80px; height:80px; border-radius:8px; overflow:hidden; background:#222; flex:none; }
+  .covers img { width:100%; height:100%; object-fit:cover; }
+  summary { cursor:pointer; font-weight:600; }
+  details form { margin-top:12px; }
   .bars { display:flex; align-items:flex-end; gap:2px; height:80px; margin:12px 0; }
   .bars div { flex:1; min-width:2px; background:var(--accent); border-radius:2px 2px 0 0; }
   ol.top { margin:0 0 14px; padding-left:22px; }
@@ -46,6 +58,7 @@
 <body>
 <header>
   <a id="brand" href="#/">social app</a>
+  <a href="#/pins">pins</a>
   <a href="#/catalog/movie">filmes</a>
   <a href="#/catalog/album">discos</a>
   <input id="q" placeholder="buscar usuários">
@@ -56,6 +69,11 @@
 <script>
 const main = document.getElementById('main');
 let me = null;
+
+// Cada navegação ganha um número. Páginas assíncronas só podem desenhar se ainda
+// forem a navegação atual; senão uma página lenta sobrescreve a que o usuário abriu depois.
+let routeSeq = 0;
+const fresh = () => { const s = routeSeq; return () => s === routeSeq; };
 
 async function api(path, method = 'GET', body) {
   const r = await fetch('/api' + path, {
@@ -153,12 +171,14 @@ function authPage() {
 // ---------- perfil ----------
 
 const PROFILE_TABS = [
-  ['diary', 'diário'], ['music', 'música'], ['watchlist', 'watchlist'], ['lists', 'listas'],
+  ['diary', 'diário'], ['music', 'música'], ['pins', 'pins'], ['boards', 'boards'],
+  ['watchlist', 'watchlist'], ['lists', 'listas'],
   ['followers', 'seguidores'], ['following', 'seguindo'],
 ];
 
 async function profilePage(username, tab) {
-  tab = PROFILE_TABS.some(t => t[0] === tab) ? tab : 'diary';
+  const ok = fresh();
+  tab =PROFILE_TABS.some(t => t[0] === tab) ? tab : 'diary';
   const p = await api('/users/' + encodeURIComponent(username));
   const card = h('div', { class: 'card' },
     h('h1', { text: p.display_name }),
@@ -202,6 +222,10 @@ async function profilePage(username, tab) {
     body.append(entries.length
       ? h('div', {}, entries.map(e => itemRow(e.item, fmtStars(e.rating), e.review)))
       : h('p', { class: 'mute', text: 'nenhuma nota ainda.' }));
+  } else if (tab === 'pins') {
+    body.append(pinGrid(await api(`/users/${u}/pins`)));
+  } else if (tab === 'boards') {
+    body.append(await boardsTab(u, p.is_me));
   } else if (tab === 'music') {
     body.append(await musicTab(u));
   } else if (tab === 'watchlist') {
@@ -223,7 +247,157 @@ async function profilePage(username, tab) {
       : h('p', { class: 'mute', text: 'nenhuma lista ainda.' }));
   }
 
+  if (!ok()) return;
   main.replaceChildren(card, body);
+}
+
+// ---------- pins e boards ----------
+
+async function uploadFile(file) {
+  const r = await fetch('/api/uploads', {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (r.status === 413) throw new Error('imagem grande demais (máx. 8 MB)');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'erro no upload');
+  return d.url;
+}
+
+function pinGrid(pins, extra) {
+  if (!pins.length) return h('p', { class: 'mute', text: 'nenhum pin por aqui ainda.' });
+  return h('div', { class: 'masonry' }, pins.map(p => {
+    const card = h('div', { class: 'pin' },
+      h('a', { href: '#/pin/' + p.id },
+        h('img', { src: p.image_url, alt: p.title, loading: 'lazy', referrerpolicy: 'no-referrer',
+          onerror: e => e.target.replaceWith(h('div', { class: 'pt mute', text: 'imagem indisponível' })) }),
+        p.title ? h('div', { class: 'pt', text: p.title }) : ''));
+    if (extra) card.append(h('div', { class: 'tools' }, extra(p)));
+    return card;
+  }));
+}
+
+function newPinForm() {
+  const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp' });
+  const url = h('input', { placeholder: 'ou cole o link de uma imagem (https://…)' });
+  const title = h('input', { placeholder: 'título (opcional)', maxlength: 100 });
+  const desc = h('textarea', { rows: 2, placeholder: 'descrição (opcional)', maxlength: 500 });
+  const link = h('input', { placeholder: 'link de origem (opcional)' });
+  const err = h('div', { class: 'err' });
+  return h('details', { class: 'card' }, h('summary', { text: '+ Novo pin' }),
+    h('form', { onsubmit: async e => {
+      e.preventDefault(); err.textContent = '';
+      try {
+        let image_url = url.value.trim();
+        if (file.files[0]) image_url = await uploadFile(file.files[0]);
+        if (!image_url) throw new Error('escolha um arquivo ou cole o link da imagem');
+        const r = await api('/pins', 'POST', { image_url, title: title.value, description: desc.value, link: link.value });
+        location.hash = '#/pin/' + r.id;
+      } catch (x) { err.textContent = x.message; }
+    } }, file, url, title, desc, link, err, h('button', { class: 'primary', type: 'submit', text: 'Publicar' })));
+}
+
+async function pinsPage(feed) {
+  if (feed === 'following' && !me) { location.hash = '#/login'; return; }
+  let q = '', all = [];
+  const grid = h('div');
+  const moreBtn = h('button', { text: 'carregar mais', style: 'display:none' });
+  const load = async () => {
+    const params = new URLSearchParams({ feed });
+    if (q) params.set('q', q);
+    if (all.length) params.set('before', all[all.length - 1].id);
+    const batch = await api('/pins?' + params);
+    all = all.concat(batch);
+    grid.replaceChildren(pinGrid(all));
+    moreBtn.style.display = batch.length >= 30 ? '' : 'none';
+  };
+  moreBtn.addEventListener('click', () => load().catch(e => alert(e.message)));
+
+  const search = h('input', { placeholder: 'buscar pins', style: 'flex:1' });
+  const bar = h('div', { class: 'card' },
+    h('div', { class: 'tabs' },
+      h('a', { href: '#/pins', class: feed === 'explore' ? 'on' : '', text: 'explorar' }),
+      me ? h('a', { href: '#/pins/following', class: feed === 'following' ? 'on' : '', text: 'seguindo' }) : ''),
+    h('form', { class: 'inline', onsubmit: e => { e.preventDefault(); q = search.value.trim(); all = []; load().catch(x => alert(x.message)); } },
+      search, h('button', { type: 'submit', text: 'Buscar' })));
+
+  main.replaceChildren(...[bar, me ? newPinForm() : '', grid, moreBtn].filter(Boolean));
+  await load();
+}
+
+async function pinPage(id) {
+  const ok = fresh();
+  const p =await api('/pins/' + encodeURIComponent(id));
+  const card = h('div', { class: 'card' },
+    h('img', { class: 'pinbig', src: p.image_url, alt: p.title, referrerpolicy: 'no-referrer',
+      onerror: e => e.target.replaceWith(h('p', { class: 'mute', text: 'imagem indisponível' })) }),
+    p.title ? h('h1', { text: p.title }) : '',
+    p.description ? h('p', { text: p.description }) : '',
+    /^https?:\/\//.test(p.link) ? h('p', {}, h('a', { href: p.link, target: '_blank', rel: 'noopener noreferrer', text: 'ver origem' })) : '',
+    h('div', { class: 'mute' }, 'por ', h('a', { href: '#/u/' + p.owner.username, text: p.owner.display_name }),
+      ` · ${p.saves} ${p.saves === 1 ? 'save' : 'saves'}`));
+  if (p.is_owner) card.append(h('p', {}, h('button', { text: 'Apagar pin', onclick: async () => {
+    if (!confirm('Apagar esse pin?')) return;
+    await api('/pins/' + p.id, 'DELETE');
+    location.hash = '#/u/' + me.username + '/pins';
+  } })));
+
+  const parts = [card];
+  if (me) {
+    const msg = h('div', { class: 'err' });
+    const act = fn => async () => { msg.textContent = ''; try { await fn(); route(); } catch (e) { msg.textContent = e.message; } };
+    const save = h('div', { class: 'card' }, h('h2', { text: 'Salvar em um board' }));
+    p.my_boards.forEach(b => save.append(h('button', { style: 'margin:0 6px 6px 0', text: (b.has ? '✓ ' : '') + b.title,
+      onclick: act(() => b.has ? api(`/boards/${b.id}/pins/${p.id}`, 'DELETE') : api(`/boards/${b.id}/pins`, 'POST', { pin_id: p.id })) })));
+    const nb = h('input', { placeholder: 'novo board', maxlength: 80 });
+    save.append(h('form', { class: 'inline', onsubmit: e => { e.preventDefault();
+      act(async () => { const r = await api('/boards', 'POST', { title: nb.value }); await api(`/boards/${r.id}/pins`, 'POST', { pin_id: p.id }); })(); } },
+      nb, h('button', { type: 'submit', text: 'Criar e salvar' })), msg);
+    parts.push(save);
+  } else {
+    card.append(h('a', { href: '#/login', text: 'Entre para salvar' }));
+  }
+  if (!ok()) return;
+  main.replaceChildren(...parts);
+}
+
+async function boardPage(id) {
+  const ok = fresh();
+  const b =await api('/boards/' + encodeURIComponent(id));
+  const card = h('div', { class: 'card' },
+    h('h1', { text: b.title }),
+    h('div', { class: 'mute' }, 'por ', h('a', { href: '#/u/' + b.owner.username, text: b.owner.display_name }), ` · ${b.pins.length} ${b.pins.length === 1 ? 'pin' : 'pins'}`),
+    b.description ? h('p', { text: b.description }) : '');
+  if (b.is_owner) card.append(h('p', {}, h('button', { text: 'Apagar board', onclick: async () => {
+    if (!confirm('Apagar esse board? Os pins continuam existindo.')) return;
+    await api('/boards/' + b.id, 'DELETE');
+    location.hash = '#/u/' + me.username + '/boards';
+  } })));
+  const grid = pinGrid(b.pins, b.is_owner
+    ? p => h('button', { text: 'tirar do board', onclick: async () => { await api(`/boards/${b.id}/pins/${p.id}`, 'DELETE'); route(); } })
+    : null);
+  if (!ok()) return;
+  main.replaceChildren(card, h('div', { class: 'card' }, grid));
+}
+
+async function boardsTab(u, isMe) {
+  const box = h('div');
+  if (isMe) {
+    const t = h('input', { placeholder: 'nome do novo board', maxlength: 80 });
+    const err = h('div', { class: 'err' });
+    box.append(h('form', { class: 'inline', onsubmit: async e => {
+      e.preventDefault(); err.textContent = '';
+      try { const r = await api('/boards', 'POST', { title: t.value }); location.hash = '#/board/' + r.id; }
+      catch (x) { err.textContent = x.message; }
+    } }, t, h('button', { class: 'primary', type: 'submit', text: 'Criar board' }), err));
+  }
+  const boards = await api(`/users/${u}/boards`);
+  if (!boards.length) box.append(h('p', { class: 'mute', text: 'nenhum board ainda.' }));
+  boards.forEach(b => box.append(h('a', { class: 'row', href: '#/board/' + b.id },
+    h('div', { class: 'covers' }, b.covers.map(c => h('img', { src: c, alt: '', referrerpolicy: 'no-referrer' }))),
+    h('div', {}, h('strong', { text: b.title }), h('div', { class: 'mute', text: `${b.n} ${b.n === 1 ? 'pin' : 'pins'}` })))));
+  return box;
 }
 
 // ---------- música (scrobbler) ----------
@@ -270,6 +444,7 @@ async function musicTab(u) {
 }
 
 async function scrobblerPage() {
+  const ok = fresh();
   if (!me) { location.hash = '#/login'; return; }
   const tokens = await api('/tokens');
   const card = h('div', { class: 'card' },
@@ -321,6 +496,7 @@ POST ${location.origin}/api/nowplaying   {"artist","track","album"}
 
 # vários de uma vez, ex.: sincronizar o que ouviu offline (até 100)
 POST ${location.origin}/api/scrobble/batch   [{"artist","track","timestamp":1731000000}, ...]` }));
+  if (!ok()) return;
   main.replaceChildren(card);
 }
 
@@ -350,7 +526,8 @@ function catalogPage(kind) {
 }
 
 async function itemPage(id) {
-  const d = await api('/items/' + encodeURIComponent(id));
+  const ok = fresh();
+  const d =await api('/items/' + encodeURIComponent(id));
   const it = d.item;
   const sub = [it.year, it.creator].filter(Boolean).join(' · ');
   const card = h('div', { class: 'card' },
@@ -402,11 +579,13 @@ async function itemPage(id) {
     h('span', { class: 'stars', text: fmtStars(r.rating) }),
     h('div', { text: r.review }))));
 
+  if (!ok()) return;
   main.replaceChildren(card, reviews);
 }
 
 async function listPage(id) {
-  const l = await api('/lists/' + encodeURIComponent(id));
+  const ok = fresh();
+  const l =await api('/lists/' + encodeURIComponent(id));
   const card = h('div', { class: 'card' },
     h('h1', { text: l.title }),
     h('div', { class: 'mute' }, 'por ', h('a', { href: '#/u/' + l.owner.username, text: l.owner.display_name })),
@@ -426,24 +605,30 @@ async function listPage(id) {
     } }));
     body.append(row);
   });
+  if (!ok()) return;
   main.replaceChildren(card, body);
 }
 
 // ---------- rotas ----------
 
 async function route() {
-  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const seq = ++routeSeq;
+  const parts =location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  main.classList.toggle('wide', !parts.length || ['pins', 'board'].includes(parts[0]));
   try {
     if (parts[0] === 'login') return authPage();
+    if (parts[0] === 'pins') return await pinsPage(parts[1] === 'following' ? 'following' : 'explore');
+    if (parts[0] === 'pin' && parts[1]) return await pinPage(parts[1]);
+    if (parts[0] === 'board' && parts[1]) return await boardPage(parts[1]);
     if (parts[0] === 'scrobbler') return await scrobblerPage();
     if (parts[0] === 'u' && parts[1]) return await profilePage(decodeURIComponent(parts[1]), parts[2]);
     if (parts[0] === 'catalog') return catalogPage(parts[1]);
     if (parts[0] === 'item' && parts[1]) return await itemPage(parts[1]);
     if (parts[0] === 'list' && parts[1]) return await listPage(parts[1]);
-    if (me) { location.hash = '#/u/' + me.username; return; }
-    authPage();
+    if (me) { location.hash = '#/pins'; return; }
+    return await pinsPage('explore');
   } catch (e) {
-    main.replaceChildren(errBox(e));
+    if (seq === routeSeq) main.replaceChildren(errBox(e));
   }
 }
 
