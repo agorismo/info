@@ -483,3 +483,32 @@ async fn user_boards(
     }
     Ok(Json(out))
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sniff_recognizes_supported_image_signatures() {
+        assert_eq!(sniff(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]), Some("png"));
+        assert_eq!(sniff(&[0xFF, 0xD8, 0xFF, 0x00]), Some("jpg"));
+        assert_eq!(sniff(b"GIF89a"), Some("gif"));
+        assert_eq!(sniff(b"RIFF1234WEBP"), Some("webp"));
+    }
+
+    #[test]
+    fn sniff_rejects_unknown_or_incomplete_signatures() {
+        assert_eq!(sniff(b"not an image"), None);
+        assert_eq!(sniff(b"RIFF1234NOPE"), None);
+    }
+
+    #[test]
+    fn upload_name_accepts_only_generated_upload_paths() {
+        assert_eq!(upload_name("/uploads/0123456789abcdef0123456789abcdef.png"),
+                   Some("0123456789abcdef0123456789abcdef.png"));
+        assert_eq!(upload_name("/uploads/../../app.db"), None);
+        assert_eq!(upload_name("/uploads/0123456789abcdef0123456789abcdef.svg"), None);
+        assert_eq!(upload_name("https://example.com/image.png"), None);
+    }
+}
