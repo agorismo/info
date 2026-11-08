@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>social app</title>
+<title>INFO</title>
 <style>
   :root { color-scheme: dark; --bg:#111; --card:#1b1b1b; --line:#2c2c2c; --fg:#eee; --mute:#999; --accent:#7c9cff; }
   * { box-sizing: border-box; }
@@ -53,11 +53,29 @@
   pre { background:#111; border:1px solid var(--line); padding:10px; border-radius:8px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
   h1 { margin:0; font-size:22px; }
   h2 { margin:0 0 8px; font-size:16px; }
+  header { position:sticky; top:0; z-index:20; background:rgba(17,17,17,.92); backdrop-filter:blur(14px); }
+  .card { border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.12); }
+  a { transition:color .15s ease, opacity .15s ease; }
+  a:hover { color:var(--accent); }
+  button { transition:background .15s ease, border-color .15s ease, opacity .15s ease; }
+  button:hover:not(:disabled) { border-color:#555; }
+  button:disabled { cursor:wait; opacity:.55; }
+  input:focus, textarea:focus, select:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:transparent; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  @media (max-width:640px) {
+    header { gap:10px; padding:10px 14px; }
+    #q { order:3; flex:1 1 100%; max-width:none; }
+    nav { order:4; width:100%; margin-left:0; justify-content:flex-start; flex-wrap:wrap; }
+    main { margin:16px auto; padding:0 12px; }
+    .card { padding:16px; }
+    .big .poster { width:92px; height:138px; }
+    .stats { gap:12px; flex-wrap:wrap; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <a id="brand" href="#/">social app</a>
+  <a id="brand" href="#/">INFO</a>
   <a href="#/pins">pins</a>
   <a href="#/catalog/movie">filmes</a>
   <a href="#/catalog/album">discos</a>
