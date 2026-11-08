@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>social app</title>
+<title>INFO</title>
 <style>
   :root { color-scheme: dark; --bg:#111; --card:#1b1b1b; --line:#2c2c2c; --fg:#eee; --mute:#999; --accent:#7c9cff; }
   * { box-sizing: border-box; }
@@ -53,11 +53,29 @@
   pre { background:#111; border:1px solid var(--line); padding:10px; border-radius:8px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
   h1 { margin:0; font-size:22px; }
   h2 { margin:0 0 8px; font-size:16px; }
+  header { position:sticky; top:0; z-index:20; background:rgba(17,17,17,.92); backdrop-filter:blur(14px); }
+  .card { border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.12); }
+  a { transition:color .15s ease, opacity .15s ease; }
+  a:hover { color:var(--accent); }
+  button { transition:background .15s ease, border-color .15s ease, opacity .15s ease; }
+  button:hover:not(:disabled) { border-color:#555; }
+  button:disabled { cursor:wait; opacity:.55; }
+  input:focus, textarea:focus, select:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:transparent; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  @media (max-width:640px) {
+    header { gap:10px; padding:10px 14px; }
+    #q { order:3; flex:1 1 100%; max-width:none; }
+    nav { order:4; width:100%; margin-left:0; justify-content:flex-start; flex-wrap:wrap; }
+    main { margin:16px auto; padding:0 12px; }
+    .card { padding:16px; }
+    .big .poster { width:92px; height:138px; }
+    .stats { gap:12px; flex-wrap:wrap; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <a id="brand" href="#/">social app</a>
+  <a id="brand" href="#/">INFO</a>
   <a href="#/pins">pins</a>
   <a href="#/catalog/movie">filmes</a>
   <a href="#/catalog/album">discos</a>
@@ -108,7 +126,20 @@ function renderNav() {
     nav.append(
       h('a', { href: '#/scrobbler', text: 'scrobbler' }),
       h('a', { href: '#/u/' + me.username, text: '@' + me.username }),
-      h('button', { text: 'sair', onclick: async () => { await api('/logout', 'POST'); me = null; renderNav(); location.hash = '#/login'; route(); } })
+      h('button', { text: 'sair', onclick: async e => {
+        const button = e.currentTarget;
+        button.disabled = true;
+        try {
+          await api('/logout', 'POST');
+          me = null;
+          renderNav();
+          location.hash = '#/login';
+          route();
+        } catch (error) {
+          alert(error.message);
+          button.disabled = false;
+        }
+      } })
     );
   } else {
     nav.append(h('a', { href: '#/login', text: 'entrar' }));
@@ -300,17 +331,37 @@ function newPinForm() {
 
 async function pinsPage(feed) {
   if (feed === 'following' && !me) { location.hash = '#/login'; return; }
-  let q = '', all = [];
+  const isCurrentRoute = fresh();
+  let q = '', all = [], loading = false, requestSeq = 0;
   const grid = h('div');
   const moreBtn = h('button', { text: 'carregar mais', style: 'display:none' });
-  const load = async () => {
-    const params = new URLSearchParams({ feed });
-    if (q) params.set('q', q);
-    if (all.length) params.set('before', all[all.length - 1].id);
-    const batch = await api('/pins?' + params);
-    all = all.concat(batch);
-    grid.replaceChildren(pinGrid(all));
-    moreBtn.style.display = batch.length >= 30 ? '' : 'none';
+  const load = async (reset = false) => {
+    // Uma busca nova invalida a requisição anterior; paginação nunca dispara em paralelo.
+    if (reset) {
+      requestSeq++;
+      all = [];
+      grid.replaceChildren();
+      loading = false;
+    }
+    if (loading || !isCurrentRoute()) return;
+    loading = true;
+    const seq = ++requestSeq;
+    moreBtn.disabled = true;
+    try {
+      const params = new URLSearchParams({ feed });
+      if (q) params.set('q', q);
+      if (all.length) params.set('before', all[all.length - 1].id);
+      const batch = await api('/pins?' + params);
+      if (seq !== requestSeq || !isCurrentRoute()) return;
+      all = all.concat(batch);
+      grid.replaceChildren(pinGrid(all));
+      moreBtn.style.display = batch.length >= 30 ? '' : 'none';
+    } finally {
+      if (seq === requestSeq) {
+        loading = false;
+        moreBtn.disabled = false;
+      }
+    }
   };
   moreBtn.addEventListener('click', () => load().catch(e => alert(e.message)));
 
@@ -319,7 +370,7 @@ async function pinsPage(feed) {
     h('div', { class: 'tabs' },
       h('a', { href: '#/pins', class: feed === 'explore' ? 'on' : '', text: 'explorar' }),
       me ? h('a', { href: '#/pins/following', class: feed === 'following' ? 'on' : '', text: 'seguindo' }) : ''),
-    h('form', { class: 'inline', onsubmit: e => { e.preventDefault(); q = search.value.trim(); all = []; load().catch(x => alert(x.message)); } },
+    h('form', { class: 'inline', onsubmit: e => { e.preventDefault(); q = search.value.trim(); load(true).catch(x => alert(x.message)); } },
       search, h('button', { type: 'submit', text: 'Buscar' })));
 
   main.replaceChildren(...[bar, me ? newPinForm() : '', grid, moreBtn].filter(Boolean));
