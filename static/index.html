@@ -300,17 +300,37 @@ function newPinForm() {
 
 async function pinsPage(feed) {
   if (feed === 'following' && !me) { location.hash = '#/login'; return; }
-  let q = '', all = [];
+  const isCurrentRoute = fresh();
+  let q = '', all = [], loading = false, requestSeq = 0;
   const grid = h('div');
   const moreBtn = h('button', { text: 'carregar mais', style: 'display:none' });
-  const load = async () => {
-    const params = new URLSearchParams({ feed });
-    if (q) params.set('q', q);
-    if (all.length) params.set('before', all[all.length - 1].id);
-    const batch = await api('/pins?' + params);
-    all = all.concat(batch);
-    grid.replaceChildren(pinGrid(all));
-    moreBtn.style.display = batch.length >= 30 ? '' : 'none';
+  const load = async (reset = false) => {
+    // Uma busca nova invalida a requisição anterior; paginação nunca dispara em paralelo.
+    if (reset) {
+      requestSeq++;
+      all = [];
+      grid.replaceChildren();
+      loading = false;
+    }
+    if (loading || !isCurrentRoute()) return;
+    loading = true;
+    const seq = ++requestSeq;
+    moreBtn.disabled = true;
+    try {
+      const params = new URLSearchParams({ feed });
+      if (q) params.set('q', q);
+      if (all.length) params.set('before', all[all.length - 1].id);
+      const batch = await api('/pins?' + params);
+      if (seq !== requestSeq || !isCurrentRoute()) return;
+      all = all.concat(batch);
+      grid.replaceChildren(pinGrid(all));
+      moreBtn.style.display = batch.length >= 30 ? '' : 'none';
+    } finally {
+      if (seq === requestSeq) {
+        loading = false;
+        moreBtn.disabled = false;
+      }
+    }
   };
   moreBtn.addEventListener('click', () => load().catch(e => alert(e.message)));
 
@@ -319,7 +339,7 @@ async function pinsPage(feed) {
     h('div', { class: 'tabs' },
       h('a', { href: '#/pins', class: feed === 'explore' ? 'on' : '', text: 'explorar' }),
       me ? h('a', { href: '#/pins/following', class: feed === 'following' ? 'on' : '', text: 'seguindo' }) : ''),
-    h('form', { class: 'inline', onsubmit: e => { e.preventDefault(); q = search.value.trim(); all = []; load().catch(x => alert(x.message)); } },
+    h('form', { class: 'inline', onsubmit: e => { e.preventDefault(); q = search.value.trim(); load(true).catch(x => alert(x.message)); } },
       search, h('button', { type: 'submit', text: 'Buscar' })));
 
   main.replaceChildren(...[bar, me ? newPinForm() : '', grid, moreBtn].filter(Boolean));
