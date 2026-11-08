@@ -37,6 +37,7 @@ impl axum::extract::FromRef<AppState> for SqlitePool {
 
 // ---------- erros ----------
 
+#[derive(Debug)]
 struct AppError(StatusCode, String);
 
 impl AppError {
