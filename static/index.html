@@ -492,10 +492,12 @@ async function scrobblerPage() {
   -d '{"artist":"Radiohead","track":"Idioteque","album":"Kid A"}'
 
 # tocando agora (opcional, some depois de 10 min sem atualizar)
-POST ${location.origin}/api/nowplaying   {"artist","track","album"}
+POST ${location.origin}/api/nowplaying
+{"artist":"Radiohead","track":"Idioteque","album":"Kid A"}
 
 # vários de uma vez, ex.: sincronizar o que ouviu offline (até 100)
-POST ${location.origin}/api/scrobble/batch   [{"artist","track","timestamp":1731000000}, ...]` }));
+POST ${location.origin}/api/scrobble/batch
+[{"artist":"Radiohead","track":"Idioteque","timestamp":1731000000}]` }));
   if (!ok()) return;
   main.replaceChildren(card);
 }
@@ -506,14 +508,20 @@ function catalogPage(kind) {
   if (kind !== 'album') kind = 'movie';
   const input = h('input', { placeholder: kind === 'movie' ? 'buscar filmes' : 'buscar discos' });
   const out = h('div');
+  const isCurrentRoute = fresh();
+  let searchSeq = 0;
   const go = async () => {
     const q = input.value.trim();
-    if (!q) return;
+    const seq = ++searchSeq;
+    if (!q) { out.replaceChildren(); return; }
     out.replaceChildren(h('p', { class: 'mute', text: 'buscando…' }));
     try {
       const items = await api(`/catalog/search?kind=${kind}&q=${encodeURIComponent(q)}`);
+      if (seq !== searchSeq || !isCurrentRoute() || input.value.trim() !== q) return;
       out.replaceChildren(itemList(items, 'nada encontrado.'));
-    } catch (e) { out.replaceChildren(h('p', { class: 'err', text: e.message })); }
+    } catch (e) {
+      if (seq === searchSeq && isCurrentRoute()) out.replaceChildren(h('p', { class: 'err', text: e.message }));
+    }
   };
   main.replaceChildren(h('div', { class: 'card' },
     h('div', { class: 'tabs' },
@@ -633,17 +641,30 @@ async function route() {
 }
 
 let timer;
-document.getElementById('q').addEventListener('input', e => {
+let userSearchSeq = 0;
+const searchInput = document.getElementById('q');
+searchInput.addEventListener('input', e => {
   clearTimeout(timer);
   const q = e.target.value.trim();
+  const seq = ++userSearchSeq;
   if (!q) return route();
+  const routeAtStart = routeSeq;
   timer = setTimeout(async () => {
-    const users = await api('/search?q=' + encodeURIComponent(q)).catch(() => []);
-    main.replaceChildren(h('div', { class: 'card' }, h('strong', { text: 'Resultados' }), userList(users)));
+    try {
+      const users = await api('/search?q=' + encodeURIComponent(q));
+      if (seq !== userSearchSeq || routeAtStart !== routeSeq || searchInput.value.trim() !== q) return;
+      main.replaceChildren(h('div', { class: 'card' }, h('strong', { text: 'Resultados' }), userList(users)));
+    } catch (error) {
+      if (seq === userSearchSeq && routeAtStart === routeSeq) main.replaceChildren(errBox(error));
+    }
   }, 250);
 });
 
-window.addEventListener('hashchange', route);
+window.addEventListener('hashchange', () => {
+  clearTimeout(timer);
+  userSearchSeq++;
+  route();
+});
 (async () => {
   me = await api('/me').catch(() => null);
   renderNav();

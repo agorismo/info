@@ -13,7 +13,7 @@ Rust (Axum) + SQLite, front em HTML/JS puro.
 cargo run
 ```
 
-Abra http://localhost:3000. O banco (`app.db`) é criado sozinho na primeira execução e as tabelas novas são adicionadas ao banco existente.
+Abra http://localhost:3000. O banco (`app.db`) é criado sozinho na primeira execução. **Mantenha esse arquivo local e não o envie ao GitHub**: ele contém contas e dados dos usuários. O `.gitignore` exclui o banco e seus arquivos auxiliares, uploads, builds e arquivos `.env`.
 
 Variáveis de ambiente (todas opcionais, mas a busca de filmes precisa da primeira):
 
@@ -23,6 +23,7 @@ Variáveis de ambiente (todas opcionais, mas a busca de filmes precisa da primei
 | `APP_USER_AGENT` | identificação enviada ao MusicBrainz, ex.: `social-app/0.1 (seu-contato)` |
 | `PORT` | porta (padrão 3000) |
 | `DATABASE_URL` | padrão `sqlite://app.db?mode=rwc` |
+| `COOKIE_SECURE` | use `1` quando o app estiver servido por HTTPS; deixe sem definir no localhost HTTP |
 
 PowerShell: `$env:TMDB_API_KEY="SUA_CHAVE"; cargo run`
 CMD: `set TMDB_API_KEY=SUA_CHAVE` e depois `cargo run`
