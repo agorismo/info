@@ -494,7 +494,7 @@ mod tests {
         assert_eq!(sniff(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]), Some("png"));
         assert_eq!(sniff(&[0xFF, 0xD8, 0xFF, 0x00]), Some("jpg"));
         assert_eq!(sniff(b"GIF89a"), Some("gif"));
-        assert_eq!(sniff(b"RIFF1234WEBP"), Some("webp"));
+        assert_eq!(sniff(b"RIFF1234WEBP0"), Some("webp"));
     }
 
     #[test]
