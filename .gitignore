@@ -1,0 +1,22 @@
+# Local database and SQLite sidecar files
+/app.db
+/app.db-*
+*.db
+*.db-*
+
+# User-uploaded media
+/uploads/
+
+# Rust build output
+/target/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
