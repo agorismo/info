@@ -17,7 +17,6 @@ use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 use tower_http::services::ServeDir;
 
 mod catalog;
-mod messages;
 mod pins;
 mod scrobble;
 
@@ -514,18 +513,6 @@ const SCHEMA: &[&str] = &[
         PRIMARY KEY (board_id, pin_id)
     )",
     "CREATE INDEX IF NOT EXISTS board_pins_pin ON board_pins(pin_id)",
-    "CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sender_id INTEGER NOT NULL REFERENCES users(id),
-        recipient_id INTEGER NOT NULL REFERENCES users(id),
-        text TEXT NOT NULL DEFAULT '',
-        audio_url TEXT,
-        duration INTEGER,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        read_at TEXT
-    )",
-    "CREATE INDEX IF NOT EXISTS messages_pair ON messages(sender_id, recipient_id, id)",
-    "CREATE INDEX IF NOT EXISTS messages_unread ON messages(recipient_id, read_at)",
 ];
 
 #[tokio::main]
@@ -560,8 +547,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/users/:username/following", get(following))
         .merge(catalog::routes())
         .merge(scrobble::routes())
-        .merge(pins::routes())
-        .merge(messages::routes());
+        .merge(pins::routes());
 
     let app = Router::new()
         .nest("/api", api)
