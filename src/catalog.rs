@@ -195,6 +195,9 @@ async fn catalog_search(
     if q.is_empty() {
         return Ok(Json(vec![]));
     }
+    if q.chars().count() > 120 {
+        return Err(AppError::new(StatusCode::BAD_REQUEST, "busca: no máximo 120 caracteres"));
+    }
     let found = match p.kind.as_str() {
         "movie" => search_tmdb(&app, q).await?,
         "album" => search_musicbrainz(&app, q).await?,
