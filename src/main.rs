@@ -17,6 +17,7 @@ use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 use tower_http::services::ServeDir;
 
 mod catalog;
+mod pins;
 mod scrobble;
 
 #[derive(Clone)]
@@ -490,6 +491,28 @@ const SCHEMA: &[&str] = &[
         token_hash TEXT NOT NULL UNIQUE,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )",
+    "CREATE TABLE IF NOT EXISTS pins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        title TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        image_url TEXT NOT NULL,
+        link TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )",
+    "CREATE INDEX IF NOT EXISTS pins_user ON pins(user_id, id)",
+    "CREATE TABLE IF NOT EXISTS boards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT ''
+    )",
+    "CREATE TABLE IF NOT EXISTS board_pins (
+        board_id INTEGER NOT NULL REFERENCES boards(id),
+        pin_id INTEGER NOT NULL REFERENCES pins(id),
+        PRIMARY KEY (board_id, pin_id)
+    )",
+    "CREATE INDEX IF NOT EXISTS board_pins_pin ON board_pins(pin_id)",
 ];
 
 #[tokio::main]
@@ -523,10 +546,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/users/:username/followers", get(followers))
         .route("/users/:username/following", get(following))
         .merge(catalog::routes())
-        .merge(scrobble::routes());
+        .merge(scrobble::routes())
+        .merge(pins::routes());
 
     let app = Router::new()
         .nest("/api", api)
+        .nest_service("/uploads", ServeDir::new(pins::UPLOAD_DIR))
         .fallback_service(ServeDir::new("static"))
         .with_state(state);
 
