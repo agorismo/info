@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -13,7 +15,7 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
+use sqlx::{sqlite::{SqliteConnectOptions, SqlitePoolOptions}, Row, SqlitePool};
 use tower_http::services::ServeDir;
 
 mod catalog;
@@ -61,6 +63,14 @@ type ApiResult<T> = Result<T, AppError>;
 // ---------- sessão ----------
 
 async fn start_session(db: &SqlitePool, jar: CookieJar, user_id: i64) -> ApiResult<CookieJar> {
+    // Rotaciona a sessão deste navegador ao entrar novamente.
+    if let Some(previous) = jar.get("session") {
+        sqlx::query("DELETE FROM sessions WHERE token = ?")
+            .bind(previous.value())
+            .execute(db)
+            .await?;
+    }
+
     let token: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(48)
@@ -71,9 +81,15 @@ async fn start_session(db: &SqlitePool, jar: CookieJar, user_id: i64) -> ApiResu
         .bind(user_id)
         .execute(db)
         .await?;
+    // Ative COOKIE_SECURE=1 quando o app estiver servido por HTTPS.
+    // Mantém false por padrão para que o desenvolvimento local em http://localhost funcione.
+    let secure_cookie = std::env::var("COOKIE_SECURE")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     let cookie = Cookie::build(("session", token))
         .path("/")
         .http_only(true)
+        .secure(secure_cookie)
         .same_site(SameSite::Lax)
         .permanent()
         .build();
@@ -518,7 +534,12 @@ const SCHEMA: &[&str] = &[
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://app.db?mode=rwc".into());
-    let db = SqlitePoolOptions::new().max_connections(5).connect(&url).await?;
+    // SQLite não habilita foreign keys por padrão; habilite em todas as conexões do pool.
+    let options = SqliteConnectOptions::from_str(&url)?.foreign_keys(true);
+    let db = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(options)
+        .await?;
     for stmt in SCHEMA {
         sqlx::query(stmt).execute(&db).await?;
     }
