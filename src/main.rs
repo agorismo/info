@@ -415,6 +415,9 @@ async fn search(
     if q.is_empty() {
         return Ok(Json(vec![]));
     }
+    if q.chars().count() > 80 {
+        return Err(AppError::new(StatusCode::BAD_REQUEST, "busca: no máximo 80 caracteres"));
+    }
     let like = format!("%{}%", q.replace('%', "").replace('_', ""));
     let rows = sqlx::query(
         "SELECT username, display_name FROM users \
@@ -446,6 +449,7 @@ const SCHEMA: &[&str] = &[
         followee_id INTEGER NOT NULL REFERENCES users(id),
         PRIMARY KEY (follower_id, followee_id)
     )",
+    "CREATE INDEX IF NOT EXISTS follows_followee ON follows(followee_id, follower_id)",
     "CREATE TABLE IF NOT EXISTS items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kind TEXT NOT NULL,
@@ -482,6 +486,7 @@ const SCHEMA: &[&str] = &[
         position INTEGER NOT NULL,
         PRIMARY KEY (list_id, item_id)
     )",
+    "CREATE INDEX IF NOT EXISTS list_items_item ON list_items(item_id)",
     "CREATE TABLE IF NOT EXISTS scrobbles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL REFERENCES users(id),
