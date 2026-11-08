@@ -108,7 +108,20 @@ function renderNav() {
     nav.append(
       h('a', { href: '#/scrobbler', text: 'scrobbler' }),
       h('a', { href: '#/u/' + me.username, text: '@' + me.username }),
-      h('button', { text: 'sair', onclick: async () => { await api('/logout', 'POST'); me = null; renderNav(); location.hash = '#/login'; route(); } })
+      h('button', { text: 'sair', onclick: async e => {
+        const button = e.currentTarget;
+        button.disabled = true;
+        try {
+          await api('/logout', 'POST');
+          me = null;
+          renderNav();
+          location.hash = '#/login';
+          route();
+        } catch (error) {
+          alert(error.message);
+          button.disabled = false;
+        }
+      } })
     );
   } else {
     nav.append(h('a', { href: '#/login', text: 'entrar' }));
